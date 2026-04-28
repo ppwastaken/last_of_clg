@@ -1,0 +1,417 @@
+PROJECT EXPLANATION - IaC Copilot
+=================================
+
+1. What is this project?
+------------------------
+
+This project is called "IaC Copilot".
+
+IaC means "Infrastructure as Code".
+
+Infrastructure means the technical things needed to run an application, such as:
+- servers
+- databases
+- Redis
+- Kubernetes deployments
+- services
+- persistent volumes
+- cloud resources
+
+Normally, a DevOps engineer writes configuration files manually for these things.
+Examples:
+- Terraform files for cloud infrastructure
+- Kubernetes YAML files for deploying apps into Kubernetes
+
+This project lets a user describe infrastructure in normal English.
+
+Example:
+
+    deploy a Redis cluster with 3 replicas and a persistent volume
+
+Then the system uses an LLM, such as Groq or Ollama, to generate the required
+Infrastructure as Code file.
+
+So the main idea is:
+
+    English request -> AI generates Terraform/Kubernetes config -> system validates it -> human approves it -> system can apply it
+
+
+2. What problem does this project solve?
+----------------------------------------
+
+Writing infrastructure configuration manually is difficult because:
+- Terraform and Kubernetes syntax can be confusing
+- small indentation or structure mistakes can break deployment
+- beginners may not know what resources are needed
+- companies usually need review and approval before applying infrastructure changes
+
+This project acts like an assistant for infrastructure creation.
+
+It does not directly trust the AI output.
+Instead, it validates the generated config and puts it into an approval queue.
+
+This is important because infrastructure changes can be risky.
+A wrong config can create unwanted cloud resources, break services, or cause cost/security issues.
+
+
+3. What is the aim of the project?
+----------------------------------
+
+The aim is to build a prototype system where:
+
+1. A user enters an infrastructure request in plain English.
+2. The system asks an LLM to generate IaC code.
+3. The system validates the generated code.
+4. If validation passes, the request is stored as "pending".
+5. A human reviewer can approve or reject it.
+6. Only approved requests can be applied.
+7. The system stores an audit history of attempts and validation output.
+
+In simple words:
+
+    The project converts natural language into safe, reviewable infrastructure code.
+
+
+4. Who would use this project?
+------------------------------
+
+Possible users:
+- DevOps engineers
+- cloud engineers
+- students learning Terraform/Kubernetes
+- platform teams
+- developers who need infrastructure but do not know exact syntax
+
+The user does not need to write full YAML or Terraform from scratch.
+They describe what they want, review the output, and approve it if correct.
+
+
+5. What technologies are used?
+------------------------------
+
+Backend:
+- FastAPI
+- SQLAlchemy
+- PostgreSQL
+- Groq or Ollama for LLM generation
+- Terraform command-line tool for Terraform validation/apply
+- kubectl command-line tool for Kubernetes apply
+
+Frontend:
+- Streamlit
+
+Database:
+- PostgreSQL
+
+Configuration:
+- .env file
+
+Main languages:
+- Python
+
+
+6. Main parts of the project
+----------------------------
+
+backend/api.py
+This is the FastAPI backend.
+It exposes API endpoints such as:
+- POST /generate
+- GET /requests
+- POST /requests/{id}/approve
+- POST /requests/{id}/reject
+- POST /requests/{id}/apply
+
+backend/llm.py
+This talks to the LLM.
+It sends the user's English prompt and asks the model to return JSON containing infrastructure code.
+
+backend/service.py
+This controls the main workflow.
+It generates config, validates it, retries if validation fails, and saves the result in the database.
+
+backend/validators.py
+This validates generated infrastructure code.
+For Terraform, it runs terraform init and terraform validate.
+For Kubernetes, it checks YAML structure locally by default.
+
+backend/apply.py
+This applies approved infrastructure.
+For Terraform, it runs terraform apply.
+For Kubernetes, it runs kubectl apply.
+
+backend/models.py
+This defines the database tables.
+It stores generated requests, status, validation output, and attempt history.
+
+frontend/streamlit_app.py
+This is the user interface.
+The user can type a request, choose Terraform or Kubernetes, see generated code,
+and approve/reject/apply requests.
+
+
+7. What is the workflow?
+------------------------
+
+Step 1: User opens the Streamlit UI.
+
+Step 2: User types a request.
+
+Example:
+
+    deploy a Redis cluster with 3 replicas and a persistent volume
+
+Step 3: User selects output type.
+
+Options:
+- kubernetes
+- terraform
+
+Step 4: Frontend sends the request to backend.
+
+Step 5: Backend sends the prompt to the LLM.
+
+Step 6: LLM generates infrastructure code.
+
+Example Kubernetes output:
+- Deployment
+- PersistentVolumeClaim
+- Service
+
+Step 7: Backend validates the generated code.
+
+Step 8: If validation fails, backend sends the error back to the LLM and asks it to fix the code.
+
+Step 9: It retries up to 3 times.
+
+Step 10: If validation passes, request status becomes:
+
+    pending
+
+Step 11: Human reviewer checks the code.
+
+Step 12: Reviewer can:
+- approve
+- reject
+- apply after approval
+
+
+8. What statuses can a request have?
+------------------------------------
+
+validation_failed
+The AI generated config, but validation failed after all retry attempts.
+
+pending
+The config passed validation and is waiting for human review.
+
+approved
+A human reviewer approved the config.
+
+rejected
+A human reviewer rejected the config.
+
+applied
+The approved config was applied successfully.
+
+apply_failed
+The system tried to apply the config, but the command failed.
+
+
+9. What should the result look like?
+------------------------------------
+
+For a successful Kubernetes request, the result should be YAML code.
+
+Example expected resources:
+- Deployment
+- Service
+- PersistentVolumeClaim
+
+For a successful Terraform request, the result should be Terraform HCL code.
+
+After generation, the UI should show:
+- generated configuration
+- validation output
+- request ID
+- status
+
+If validation passes, the expected status is:
+
+    pending
+
+This means the generated code is ready for human review.
+
+It does not mean infrastructure has already been created.
+
+Infrastructure is only created after:
+
+    pending -> approved -> applied
+
+
+10. Important point: generation is not the same as apply
+--------------------------------------------------------
+
+This project separates two things:
+
+1. Generate code
+2. Apply code
+
+Generating code only creates the Terraform/Kubernetes file.
+It does not actually create infrastructure.
+
+Applying code actually runs:
+- terraform apply
+- kubectl apply
+
+That is why approval is required before apply.
+
+This is a safety feature.
+
+
+11. Example demo explanation
+----------------------------
+
+You can explain the project like this:
+
+    My project is an Infrastructure as Code Copilot.
+    It allows users to describe infrastructure in plain English.
+    The system uses an LLM to generate Terraform or Kubernetes configuration.
+    The generated configuration is validated automatically.
+    If it is valid, it is placed in an approval queue.
+    A human reviewer can approve or reject it.
+    Only approved infrastructure can be applied.
+    The system also stores validation attempts and outputs for audit purposes.
+
+
+12. Example input and output
+----------------------------
+
+Input:
+
+    deploy a Redis cluster with 3 replicas and a persistent volume
+
+Selected type:
+
+    kubernetes
+
+Expected output:
+
+    Kubernetes YAML containing a Deployment, Service, and PersistentVolumeClaim.
+
+Expected status if valid:
+
+    pending
+
+Meaning:
+
+    The config is valid and waiting for approval.
+
+
+13. Why is validation needed?
+-----------------------------
+
+LLMs can make mistakes.
+
+Example mistake:
+
+In Kubernetes, volumes for a Deployment must be inside:
+
+    spec.template.spec.volumes
+
+The AI may accidentally place it inside:
+
+    spec.volumes
+
+That is invalid.
+
+The validator catches mistakes like this and asks the LLM to repair the config.
+
+The validator also checks some quality rules for Redis Kubernetes output.
+
+For example, a simple StatefulSet with 3 Redis pods is valid YAML, but it is not
+automatically a real production Redis cluster.
+
+For Redis cluster-style output, the system now expects:
+- a StatefulSet
+- a headless Service using clusterIP: None
+- Redis cluster mode enabled
+- persistent volumeClaimTemplates
+- CPU and memory requests/limits
+- livenessProbe and readinessProbe
+
+This makes the project stronger because it does not only check syntax.
+It also checks whether important infrastructure requirements are present.
+
+
+14. Why is approval needed?
+---------------------------
+
+Infrastructure changes can be dangerous.
+
+They can:
+- create cloud resources
+- delete or change services
+- cost money
+- expose security risks
+
+So the project does not immediately apply AI-generated code.
+It first requires human approval.
+
+
+15. What is stored in the database?
+-----------------------------------
+
+The database stores:
+- original user prompt
+- generated config
+- artifact type, such as Terraform or Kubernetes
+- validation output
+- request status
+- LLM model used
+- number of attempts
+- reviewer note
+- apply output
+- generation attempt history
+
+This is useful for audit logs.
+
+Audit log means we can later check:
+- what the user asked
+- what the AI generated
+- whether validation passed or failed
+- who approved/rejected, if notes are added
+- what happened during apply
+
+
+16. How to run the project
+--------------------------
+
+Start PostgreSQL:
+
+    docker compose up -d postgres
+
+Start backend:
+
+    .\.venv\Scripts\python.exe -m uvicorn backend.api:app --reload
+
+Start frontend in another terminal:
+
+    .\.venv\Scripts\streamlit.exe run frontend/streamlit_app.py
+
+Then open the Streamlit URL in the browser.
+
+
+17. What is the final conclusion?
+---------------------------------
+
+This project is a prototype for AI-assisted DevOps.
+
+It helps users generate infrastructure code from plain English.
+It validates the generated code.
+It adds a human approval step before applying changes.
+It keeps records of generation and validation attempts.
+
+The final result is not just code generation.
+The final result is a safer workflow for generating, reviewing, approving,
+and applying infrastructure configuration.
