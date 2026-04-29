@@ -62,6 +62,67 @@ def generate_validate_and_queue(
     )
 
 
+def revise_validate_request(
+    db: Session,
+    settings: Settings,
+    item: IaCRequest,
+    edit_prompt: str,
+) -> IaCRequest:
+    llm = LLMClient(settings)
+    validator = IaCValidator(settings)
+    validation_error: str | None = None
+    last_config = item.generated_config
+    last_model = item.llm_model
+    last_output = item.validation_output
+    start_attempt = (
+        db.query(IaCGenerationAttempt)
+        .filter(IaCGenerationAttempt.request_id == item.id)
+        .count()
+    )
+
+    for attempt in range(1, settings.max_repair_attempts + 1):
+        result = llm.revise(last_config, edit_prompt, item.artifact_type, validation_error)
+        last_config = result.config
+        last_model = result.model
+        validation = validator.validate(item.artifact_type, result.config)
+        last_output = validation.output
+        db.add(
+            IaCGenerationAttempt(
+                request_id=item.id,
+                attempt_number=start_attempt + attempt,
+                generated_config=result.config,
+                validation_output=validation.output,
+                validation_ok=validation.ok,
+                llm_model=result.model,
+            )
+        )
+        if validation.ok:
+            item.prompt = f"{item.prompt}\n\nEdit request: {edit_prompt}"
+            item.generated_config = result.config
+            item.status = ApprovalStatus.pending
+            item.validation_output = validation.output or "Validation passed"
+            item.llm_model = result.model
+            item.attempts = start_attempt + attempt
+            item.reviewer_note = None
+            item.apply_output = None
+            db.commit()
+            db.refresh(item)
+            return item
+        validation_error = validation.output or "Validation failed without output"
+
+    item.prompt = f"{item.prompt}\n\nEdit request: {edit_prompt}"
+    item.generated_config = last_config
+    item.status = ApprovalStatus.validation_failed
+    item.validation_output = last_output or "Validation failed"
+    item.llm_model = last_model or settings.llm_provider
+    item.attempts = start_attempt + settings.max_repair_attempts
+    item.reviewer_note = None
+    item.apply_output = None
+    db.commit()
+    db.refresh(item)
+    return item
+
+
 def _save_request(
     db: Session,
     prompt: str,

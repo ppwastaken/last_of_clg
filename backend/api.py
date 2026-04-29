@@ -6,8 +6,8 @@ from backend.apply import apply_config
 from backend.config import Settings, get_settings
 from backend.database import get_db, init_db
 from backend.models import ApprovalStatus, IaCGenerationAttempt, IaCRequest
-from backend.schemas import ApprovalAction, GenerateRequest, GenerateResponse, GenerationAttemptOut, IaCRequestOut
-from backend.service import generate_validate_and_queue
+from backend.schemas import ApprovalAction, EditRequest, GenerateRequest, GenerateResponse, GenerationAttemptOut, IaCRequestOut
+from backend.service import generate_validate_and_queue, revise_validate_request
 
 app = FastAPI(title="IaC Copilot Approval Service")
 
@@ -91,6 +91,21 @@ def reject_request(
     db.commit()
     db.refresh(item)
     return item
+
+
+@app.post("/requests/{request_id}/edit", response_model=IaCRequestOut)
+def edit_request(
+    request_id: int,
+    payload: EditRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> IaCRequest:
+    item = db.get(IaCRequest, request_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if item.status == ApprovalStatus.applied:
+        raise HTTPException(status_code=409, detail="Applied requests cannot be edited; create a new request")
+    return revise_validate_request(db, settings, item, payload.prompt)
 
 
 @app.post("/requests/{request_id}/apply", response_model=IaCRequestOut)

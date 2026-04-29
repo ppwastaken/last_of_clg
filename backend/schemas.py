@@ -10,6 +10,10 @@ class GenerateRequest(BaseModel):
     artifact_type: ArtifactType
 
 
+class EditRequest(BaseModel):
+    prompt: str = Field(min_length=3)
+
+
 class GenerateResponse(BaseModel):
     id: int
     status: ApprovalStatus

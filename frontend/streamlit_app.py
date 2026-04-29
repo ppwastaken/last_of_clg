@@ -60,11 +60,13 @@ with left:
                 else:
                     reply = f"Request #{result['id']} failed validation after {result['attempts']} attempts."
                     st.error(reply)
+                    st.error(result["validation_output"])
                 st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
                 st.code(result["generated_config"], language="yaml" if artifact_type == "kubernetes" else "hcl")
                 st.text_area("Validation output", result["validation_output"], height=140)
             except requests.HTTPError as exc:
-                st.error(exc.response.text)
+                detail = exc.response.text or str(exc)
+                st.error(f"{exc.response.status_code} {exc.response.reason}: {detail}")
             except requests.RequestException as exc:
                 st.error(str(exc))
 
@@ -87,9 +89,17 @@ with right:
             language="yaml" if item["artifact_type"] == "kubernetes" else "hcl",
         )
         st.text_area("Validation output", item["validation_output"], height=110)
+        if item.get("apply_output"):
+            st.text_area("Apply output", item["apply_output"], height=120)
         note = st.text_input("Reviewer note")
+        edit_prompt = st.text_area(
+            "Edit with prompt",
+            placeholder="Example: add a NetworkPolicy and increase Redis storage to 5Gi",
+            height=90,
+            disabled=item["status"] == "applied",
+        )
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             if st.button("Approve", disabled=item["status"] != "pending"):
                 api("POST", f"/requests/{selected_id}/approve", json={"note": note})
@@ -103,6 +113,14 @@ with right:
                 with st.spinner("Applying approved config..."):
                     updated = api("POST", f"/requests/{selected_id}/apply")
                     st.text_area("Apply output", updated.get("apply_output") or "", height=120)
+                st.rerun()
+        with c4:
+            if st.button(
+                "Edit",
+                disabled=item["status"] == "applied" or not edit_prompt.strip(),
+            ):
+                with st.spinner("Revising IaC and running validation..."):
+                    api("POST", f"/requests/{selected_id}/edit", json={"prompt": edit_prompt})
                 st.rerun()
 
 if refresh:

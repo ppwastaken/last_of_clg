@@ -21,6 +21,9 @@ Rules:
 - Kubernetes workload pod fields such as containers, volumes, and volumeMounts must be under the pod template spec.
 - For Kubernetes Redis cluster requests, prefer a StatefulSet and include:
   - a headless Service with clusterIP: None
+  - Service spec.ports with Redis port 6379 and a selector matching the StatefulSet pod labels
+  - StatefulSet spec.serviceName exactly matching the headless Service metadata.name
+  - StatefulSet spec.selector.matchLabels matching spec.template.metadata.labels
   - Redis cluster mode enabled by command, args, or ConfigMap configuration
   - persistent volumeClaimTemplates for Redis data
   - CPU/memory resource requests and limits
@@ -46,6 +49,18 @@ class LLMClient:
             return self._generate_ollama(user_prompt)
         return self._generate_groq(user_prompt)
 
+    def revise(
+        self,
+        existing_config: str,
+        edit_prompt: str,
+        artifact_type: ArtifactType,
+        validation_error: str | None = None,
+    ) -> LLMResult:
+        user_prompt = self._build_revision_prompt(existing_config, edit_prompt, artifact_type, validation_error)
+        if self.settings.llm_provider.lower() == "ollama":
+            return self._generate_ollama(user_prompt)
+        return self._generate_groq(user_prompt)
+
     def _build_user_prompt(
         self, prompt: str, artifact_type: ArtifactType, validation_error: str | None
     ) -> str:
@@ -56,6 +71,28 @@ class LLMClient:
                 f"Validation error:\n{validation_error}"
             )
         return f"Requested artifact type: {artifact_type.value}\nUser request:\n{prompt}{retry_context}"
+
+    def _build_revision_prompt(
+        self,
+        existing_config: str,
+        edit_prompt: str,
+        artifact_type: ArtifactType,
+        validation_error: str | None,
+    ) -> str:
+        retry_context = ""
+        if validation_error:
+            retry_context = (
+                "\nThe previous revised output failed validation. Fix the config and return the same JSON shape.\n"
+                f"Validation error:\n{validation_error}"
+            )
+        return (
+            f"Requested artifact type: {artifact_type.value}\n"
+            "Revise the existing infrastructure-as-code according to the developer edit request.\n"
+            "Preserve unrelated valid configuration unless the edit request requires changing it.\n"
+            f"Developer edit request:\n{edit_prompt}\n\n"
+            f"Existing config:\n{existing_config}"
+            f"{retry_context}"
+        )
 
     def _generate_groq(self, user_prompt: str) -> LLMResult:
         if not self.settings.groq_api_key:
